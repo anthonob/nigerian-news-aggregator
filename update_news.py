@@ -1,15 +1,21 @@
+# ─── IMPORTS ───────────────────────────────────────────────────────────────────
 import os
 import datetime
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from transformers import pipeline
 import feedparser
+from transformers import pipeline
 
-# ─── PATHS ─────────────────────────────────────────────────────────────────────
+# ─── PATHS (Dynamic) ───────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 SUMMARY_CSV_PATH = os.path.join(BASE_DIR, "summarized_news.csv")
 LOG_FILE_PATH = os.path.join(BASE_DIR, "update_log.txt")
+
+# ─── SUMMARIZER ────────────────────────────────────────────────────────────────
+# Light summarizer model for GitHub Actions
+summarizer = pipeline('summarization', model='sshleifer/distilbart-cnn-12-6')
 
 # ─── NEWS SOURCES ───────────────────────────────────────────────────────────────
 RSS_FEEDS = {
@@ -18,14 +24,11 @@ RSS_FEEDS = {
     "Vanguard Nigeria": "https://www.vanguardngr.com/feed/"
 }
 
-# ─── SUMMARIZER ─────────────────────────────────────────────────────────────────
-summarizer = pipeline('summarization', model='facebook/bart-large-cnn')
-
 # ─── HELPER FUNCTIONS ───────────────────────────────────────────────────────────
 def fetch_rss_articles(feed_url):
     feed = feedparser.parse(feed_url)
     articles = []
-    for entry in feed.entries[:5]:  # Limit to latest 5 articles per source
+    for entry in feed.entries[:5]:  # limit to latest 5 articles per source
         articles.append({
             "Title": entry.title,
             "Link": entry.link,
@@ -82,7 +85,6 @@ def update_news():
         print("Saving summarized news to file...")
         news_df[['Source', 'Title', 'Summary', 'Link']].to_csv(SUMMARY_CSV_PATH, index=False)
 
-        # Save success log
         with open(LOG_FILE_PATH, 'a', encoding='utf-8') as log:
             log.write(f"✅ Updated successfully at {datetime.datetime.now()}\n")
 
