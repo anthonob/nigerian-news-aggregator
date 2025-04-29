@@ -2,7 +2,7 @@ name: Auto Update News
 
 on:
   schedule:
-    - cron: "0 6,11,17 * * *"  # Runs at 7am, 12pm, 6pm Nigeria time (UTC+1)
+    - cron: "0 6,11,17 * * *"  # Runs at 7am, 12pm, and 6pm Nigeria time (UTC+1)
   workflow_dispatch:           # Optional: allows manual trigger from GitHub UI
 
 jobs:
@@ -20,6 +20,7 @@ jobs:
 
     - name: Install dependencies
       run: |
+        pip install torch
         pip install pandas beautifulsoup4 feedparser transformers requests
 
     - name: Run update script
