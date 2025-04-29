@@ -3,7 +3,7 @@ name: Auto Update News
 on:
   schedule:
     - cron: "0 6,11,17 * * *"  # 7am, 12pm, and 6pm Nigeria time (UTC+1)
-  workflow_dispatch:           # Optional: allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
   update-news:
@@ -12,6 +12,10 @@ jobs:
     steps:
     - name: Checkout repo
       uses: actions/checkout@v3
+
+    - name: Override Git Remote URL
+      run: |
+        git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/anthonob/nigerian-news-aggregator.git
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -33,4 +37,4 @@ jobs:
         git config --global user.email 'actions@github.com'
         git add summarized_news.csv
         git commit -m "Auto-update summarized news" || echo "No changes to commit"
-        git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/anthonob/nigerian-news-aggregator.git HEAD:main
+        git push origin HEAD:main
