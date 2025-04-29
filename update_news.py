@@ -1,146 +1,96 @@
-# ─── INSTALL REQUIRED PACKAGES IF NEEDED ───────────────────────────────────────
-# !pip install pandas requests feedparser beautifulsoup4 transformers
-
-# ─── IMPORTS ───────────────────────────────────────────────────────────────────
+import os
+import datetime
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import feedparser
 from transformers import pipeline
-import os
-import datetime
+import feedparser
 
-# ─── SETUP SUMMARIZER ──────────────────────────────────────────────────────────
+# ─── PATHS ─────────────────────────────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SUMMARY_CSV_PATH = os.path.join(BASE_DIR, "summarized_news.csv")
+LOG_FILE_PATH = os.path.join(BASE_DIR, "update_log.txt")
+
+# ─── NEWS SOURCES ───────────────────────────────────────────────────────────────
+RSS_FEEDS = {
+    "Guardian Nigeria": "https://guardian.ng/feed/",
+    "Punch Nigeria": "https://punchng.com/feed/",
+    "Vanguard Nigeria": "https://www.vanguardngr.com/feed/"
+}
+
+# ─── SUMMARIZER ─────────────────────────────────────────────────────────────────
 summarizer = pipeline('summarization', model='facebook/bart-large-cnn')
 
-# ─── PATH SETTINGS ─────────────────────────────────────────────────────────────
-# Define where to save your CSV and Log files
-BASE_FOLDER = r"C:\Users\USER\Documents\Personlaised News Aggregator"
-SUMMARY_CSV_PATH = os.path.join(BASE_FOLDER, "summarized_news.csv")
-LOG_FILE_PATH = os.path.join(BASE_FOLDER, "update_log.txt")
+# ─── HELPER FUNCTIONS ───────────────────────────────────────────────────────────
+def fetch_rss_articles(feed_url):
+    feed = feedparser.parse(feed_url)
+    articles = []
+    for entry in feed.entries[:5]:  # Limit to latest 5 articles per source
+        articles.append({
+            "Title": entry.title,
+            "Link": entry.link,
+            "Content": entry.summary if hasattr(entry, 'summary') else ""
+        })
+    return articles
 
-# ─── FUNCTIONS TO FETCH NEWS ────────────────────────────────────────────────────
-
-def fetch_punch_news():
-    url = 'https://punchng.com/'
+def fetch_website_articles(url, article_tag='article', title_tag='h3'):
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
-    
     articles = []
-    for article in soup.find_all('article'):
-        h3_tag = article.find('h3')
+    for article in soup.find_all(article_tag):
+        h3_tag = article.find(title_tag)
         if h3_tag:
             a_tag = h3_tag.find('a')
             if a_tag and a_tag.get('href'):
-                title = a_tag.text.strip()
-                link = a_tag['href']
-                article_text = fetch_full_article_text(link)
-                
                 articles.append({
-                    'Source': 'Punch Nigeria',
-                    'Title': title,
-                    'Link': link,
-                    'Content': article_text
+                    "Title": a_tag.text.strip(),
+                    "Link": a_tag['href'],
+                    "Content": ""
                 })
     return articles
 
-def fetch_full_article_text(link):
-    try:
-        response = requests.get(link)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        paragraphs = soup.find_all('p')
-        full_text = ' '.join([p.get_text() for p in paragraphs])
-        return full_text.strip()
-    except:
-        return ""
-
-def fetch_guardian_news():
-    rss_url = "https://guardian.ng/feed/"
-    feed = feedparser.parse(rss_url)
-    
-    articles = []
-    for entry in feed.entries:
-        summary = BeautifulSoup(entry.summary, 'html.parser').text
-        articles.append({
-            'Source': 'Guardian Nigeria',
-            'Title': entry.title,
-            'Link': entry.link,
-            'Content': summary
-        })
-    return articles
-
-def fetch_vanguard_news():
-    rss_url = "https://www.vanguardngr.com/feed/"
-    feed = feedparser.parse(rss_url)
-    
-    articles = []
-    for entry in feed.entries:
-        summary = BeautifulSoup(entry.summary, 'html.parser').text
-        articles.append({
-            'Source': 'Vanguard Nigeria',
-            'Title': entry.title,
-            'Link': entry.link,
-            'Content': summary
-        })
-    return articles
-
-def generate_summary(text):
-    if not text or len(text.split()) < 50:
+def summarize_text(text):
+    if not text or len(text.split()) < 30:
         return text
-    try:
-        words = text.split()[:500]
-        short_text = ' '.join(words)
-        summary_text = summarizer(
-            short_text,
-            max_length=100,
-            min_length=30,
-            do_sample=False
-        )[0]['summary_text']
-        return summary_text
-    except Exception as e:
-        print(f"Summarization error: {e}")
-        return text
+    summary = summarizer(text, max_length=100, min_length=30, do_sample=False)[0]['summary_text']
+    return summary
 
-# ─── MAIN UPDATE FUNCTION ──────────────────────────────────────────────────────
-
+# ─── MAIN UPDATE FUNCTION ───────────────────────────────────────────────────────
 def update_news():
     try:
         print("Fetching news...")
-        punch_articles = fetch_punch_news()
-        guardian_articles = fetch_guardian_news()
-        vanguard_articles = fetch_vanguard_news()
+        news_data = []
 
-        all_articles = punch_articles + guardian_articles + vanguard_articles
-        news_df = pd.DataFrame(all_articles)
+        for source, feed_url in RSS_FEEDS.items():
+            if "punchng.com" in feed_url:
+                articles = fetch_website_articles('https://punchng.com/')
+            else:
+                articles = fetch_rss_articles(feed_url)
 
-        # Drop duplicates and limit to top 20
-        news_df = news_df.drop_duplicates(subset='Title').reset_index(drop=True)
-        news_df = news_df.head(20)
+            for article in articles:
+                news_data.append({
+                    "Source": source,
+                    "Title": article["Title"],
+                    "Link": article["Link"],
+                    "Content": article["Content"]
+                })
 
         print("Summarizing news...")
-        news_df['Summary'] = news_df['Content'].apply(generate_summary)
+        news_df = pd.DataFrame(news_data)
+        news_df['Summary'] = news_df['Content'].apply(summarize_text)
 
         print("Saving summarized news to file...")
+        news_df[['Source', 'Title', 'Summary', 'Link']].to_csv(SUMMARY_CSV_PATH, index=False)
 
-        # Delete old CSV if it exists
-        if os.path.exists(SUMMARY_CSV_PATH):
-            os.remove(SUMMARY_CSV_PATH)
-
-        # Save new CSV
-        news_df.to_csv(SUMMARY_CSV_PATH, index=False)
-
-        # Log success (UTF-8 encoding to handle emojis ✅)
+        # Save success log
         with open(LOG_FILE_PATH, 'a', encoding='utf-8') as log:
-            log.write(f"✅ News updated successfully at {datetime.datetime.now()}\n")
-
-        print("Update completed successfully.")
+            log.write(f"✅ Updated successfully at {datetime.datetime.now()}\n")
 
     except Exception as e:
-        # Log error
+        print(f"Error: {str(e)}")
         with open(LOG_FILE_PATH, 'a', encoding='utf-8') as log:
             log.write(f"❌ Error at {datetime.datetime.now()}: {str(e)}\n")
-        print(f"Error occurred: {str(e)}")
 
-# ─── EXECUTE SCRIPT ────────────────────────────────────────────────────────────
+# ─── RUN ────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     update_news()
