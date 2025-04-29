@@ -1,40 +1,71 @@
-name: Auto Update News
+# update_news.py
+import os
+import datetime
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+import feedparser
+from transformers import pipeline
 
-on:
-  schedule:
-    - cron: "0 6,11,17 * * *"  # 7am, 12pm, and 6pm Nigeria time (UTC+1)
-  workflow_dispatch:
+# ─── PATHS ─────────────────────────────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SUMMARY_CSV = os.path.join(BASE_DIR, "summarized_news.csv")
+LOG_FILE    = os.path.join(BASE_DIR, "update_log.txt")
 
-jobs:
-  update-news:
-    runs-on: ubuntu-latest
+# ─── SUMMARIZER ────────────────────────────────────────────────────────────────
+summarizer = pipeline('summarization', model='sshleifer/distilbart-cnn-12-6')
 
-    steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
+# ─── NEWS SOURCES ───────────────────────────────────────────────────────────────
+RSS_FEEDS = {
+    "Guardian Nigeria": "https://guardian.ng/feed/",
+    "Punch Nigeria":    "https://punchng.com/feed/",
+    "Vanguard Nigeria": "https://www.vanguardngr.com/feed/"
+}
 
-    - name: Override Git Remote URL
-      run: |
-        git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/anthonob/nigerian-news-aggregator.git
+# ─── HELPERS ─────────────────────────────────────────────────────────────────────
+def fetch_rss(url):
+    feed = feedparser.parse(url)
+    return [{
+        "Title": entry.title,
+        "Link":  entry.link,
+        "Content": getattr(entry, 'summary', "")
+    } for entry in feed.entries[:5]]
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+def fetch_site(url):
+    resp = requests.get(url)
+    soup = BeautifulSoup(resp.content, 'html.parser')
+    out = []
+    for art in soup.find_all('article')[:5]:
+        h3 = art.find('h3')
+        if h3 and (a:=h3.find('a')):
+            out.append({
+                "Title": a.text.strip(),
+                "Link":  a['href'],
+                "Content": ""
+            })
+    return out
 
-    - name: Install dependencies
-      run: |
-        pip install torch
-        pip install pandas beautifulsoup4 feedparser transformers requests
+def summarize(text):
+    if not text or len(text.split())<30:
+        return text
+    return summarizer(text, max_length=100, min_length=30, do_sample=False)[0]['summary_text']
 
-    - name: Run update script
-      run: |
-        python update_news.py
+# ─── MAIN ───────────────────────────────────────────────────────────────────────
+def update_news():
+    try:
+        news = []
+        for src, url in RSS_FEEDS.items():
+            articles = fetch_site("https://punchng.com/") if "punchng.com" in url else fetch_rss(url)
+            for art in articles:
+                news.append({"Source": src, **art})
+        df = pd.DataFrame(news)
+        df["Summary"] = df["Content"].apply(summarize)
+        df[["Source","Title","Summary","Link"]].to_csv(SUMMARY_CSV, index=False)
+        with open(LOG_FILE, 'a', encoding='utf-8') as log:
+            log.write(f"✅ Updated at {datetime.datetime.now()}\n")
+    except Exception as e:
+        with open(LOG_FILE, 'a', encoding='utf-8') as log:
+            log.write(f"❌ Error at {datetime.datetime.now()}: {e}\n")
 
-    - name: Commit and push if there are changes
-      run: |
-        git config --global user.name 'GitHub Actions'
-        git config --global user.email 'actions@github.com'
-        git add summarized_news.csv
-        git commit -m "Auto-update summarized news" || echo "No changes to commit"
-        git push origin HEAD:main
+if __name__=="__main__":
+    update_news()
