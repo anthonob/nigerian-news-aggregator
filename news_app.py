@@ -1,44 +1,34 @@
-# ─── INSTALL REQUIRED PACKAGES IF NEEDED ───────────────────────────────────────
-# !pip install streamlit pandas
-
 # ─── IMPORTS ───────────────────────────────────────────────────────────────────
 import streamlit as st
 import pandas as pd
 
-# ─── STREAMLIT APP ─────────────────────────────────────────────────────────────
+# ─── PAGE CONFIGURATION ────────────────────────────────────────────────────────
+st.set_page_config(page_title="Eagle Nigerian News", page_icon="🦅", layout="wide")
 
-# Page configuration
-st.set_page_config(page_title="Nigeria News Aggregator", page_icon="📰", layout="wide")
-
-st.title("📰 Live Nigeria News Aggregator")
-st.markdown("Get high-quality, summarized headlines from Punch, Guardian, and Vanguard Newspapers.")
-
-# Load summarized news from CSV
-news_df = pd.read_csv('summarized_news.csv')
-
-# Optional: Show last updated time based on file save time
-import os
-import datetime
-
-last_modified_timestamp = os.path.getmtime('summarized_news.csv')
-last_updated_time = datetime.datetime.fromtimestamp(last_modified_timestamp)
-st.markdown(f"**Last Updated:** {last_updated_time.strftime('%B %d, %Y %I:%M %p')}")
-
-# Sidebar filters
-st.sidebar.header("Filter News")
-selected_source = st.sidebar.multiselect(
-    "Select News Source(s):",
-    options=news_df['Source'].unique(),
-    default=news_df['Source'].unique()
+# ─── HEADER ─────────────────────────────────────────────────────────────────────
+st.markdown(
+    """
+    # 🦅 Eagle Nigerian News
+    #### Your Smart AI-Powered Daily News Digest 🇳🇬
+    ---
+    """,
+    unsafe_allow_html=True
 )
 
-# Filter based on sidebar selection
-filtered_df = news_df[news_df['Source'].isin(selected_source)]
+# ─── LOAD SUMMARIZED NEWS ──────────────────────────────────────────────────────
+@st.cache_data
+def load_data():
+    df = pd.read_csv('summarized_news.csv')
+    return df
 
-# Show news
-for idx, row in filtered_df.iterrows():
-    st.subheader(row['Title'])
-    st.markdown(f"**Source:** {row['Source']}")
-    st.write(row['Summary'])
+news_df = load_data()
+
+# ─── DISPLAY NEWS ──────────────────────────────────────────────────────────────
+st.write(f"### 📰 Latest Headlines ({len(news_df)} stories)")
+
+for index, row in news_df.iterrows():
+    st.subheader(f"{row['Title']}")
+    st.caption(f"**Source:** {row['Source']}")
+    st.write(f"{row['Summary']}")
     st.markdown(f"[Read Full Article Here]({row['Link']})")
     st.markdown("---")
